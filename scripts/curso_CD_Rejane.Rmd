@@ -1,0 +1,284 @@
+---
+title: "Relatório Curso CD"
+author: "Rejane Finotti"
+date: "2026-04-23"
+output: html_document
+---
+
+## Poluição e doenças respiratórias em Mato Grosso
+
+### Introdução
+A poluição atmosférica por material particulado fino (PM2,5) é reconhecida como um importante fator de risco para a saúde humana, estando associada ao aumento da morbimortalidade por doenças respiratórias. No estado de Mato Grosso, esse problema apresenta forte componente sazonal, especialmente durante o período seco, quando a intensificação das queimadas e incêndios florestais contribui para a elevação das concentrações de poluentes na atmosfera.
+
+Por outro lado, as doenças respiratórias também apresentam comportamento sazonal, influenciado por fatores climáticos, ambientais e epidemiológicos. No contexto regional, observa-se que o maior volume de internações por doenças respiratórias ocorre predominantemente nos meses de chuva, período caracterizado por maior circulação de vírus respiratórios, mudanças de temperatura e condições ambientais que favorecem a transmissão de agentes infecciosos. Esse padrão indica que a dinâmica desses agravos não está associada exclusivamente à poluição atmosférica, mas resulta da interação entre múltiplos determinantes.
+
+### Objetivo
+Descrever a distribuição mensal das concentrações máximas diárias de PM2,5 e das internações por doenças respiratórias no estado de Mato Grosso, no ano de 2024, a fim de identificar padrões sazonais distintos, variações intra e intermensais e possíveis relações temporais entre exposição ambiental e desfechos em saúde.
+
+#### Pacotes
+```{r pacotes}
+library(tidyverse)
+library(readxl)
+library(lubridate)
+library(ggridges)
+library(viridis)
+library(sf)
+library(leaflet)
+library(gganimate)
+library(gifski)
+library(transformr)
+```
+
+#### Diretorio
+```{r base PM25}
+pm25 <- read_csv('../dados/pm25_max_mean_MT.csv')
+sih  <- read_excel('../dados/SIH_2011-2026.xlsx')
+```
+
+### Organizando os meses
+```{r meses}
+mes_map <- c(
+  Jan = "janeiro",
+  Fev = "fevereiro",
+  Mar = "marco",
+  Abr = "abril",
+  Mai = "maio",
+  Jun = "junho",
+  Jul = "julho",
+  Ago = "agosto",
+  Set = "setembro",
+  Out = "outubro",
+  Nov = "novembro",
+  Dez = "dezembro"
+)
+```
+
+### Base Material Particulado (PM25)
+```{r arumando PM25}
+ordem_meses <- c(
+  "janeiro", "fevereiro", "marco", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"
+)
+
+pm25_2024 <- pm25 |>
+  mutate(
+    ano = year(date),
+    mes_num = month(date),
+    mes = factor(mes_num, levels = 1:12, labels = ordem_meses)
+  ) |>
+  filter(ano == 2024) |>
+  group_by(date, mes) |>
+  summarise(
+    pm25_max = max(value, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  filter(is.finite(pm25_max))
+
+# retirar valores extremos
+limite_pm25 <- quantile(pm25_2024$pm25_max, 0.99, na.rm = TRUE)
+
+pm25_2024 <- pm25_2024 |>
+  filter(pm25_max <= limite_pm25)
+
+# conferir se tem dados
+nrow(pm25_2024)
+table(pm25_2024$mes, useNA = "always")
+summary(pm25_2024$pm25_max)
+
+```
+#### Gráfico da distribução dos valores máximos diários do PM25 em Mato Grosso no ano de 2024
+```{r grafico p25}
+grafico_pm25 <- ggplot(
+  pm25_2024,
+  aes(
+    x = pm25_max,
+    y = fct_rev(mes),
+    fill = after_stat(x)
+  )
+) +
+  geom_density_ridges_gradient(
+    scale = 2.5,
+    rel_min_height = 0.01,
+    color = "black",
+    linewidth = 0.3
+  ) +
+  scale_fill_viridis_c(
+    option = "C",
+    direction = -1,
+    name = "PM2,5"
+  ) +
+  labs(
+    title = "A) Distribuicao dos valores maximos diario de PM25 no ano de 2024 em Mato Grosso",
+    x = "PM2,5 maxima diaria",
+    y = "Mes"
+  ) +
+  theme_minimal()
+
+grafico_pm25
+```
+
+
+
+Observa-se um padrão sazonal bem definido na concentração máxima diária de PM2,5 em Mato Grosso ao longo de 2024. Nos primeiros meses do ano, de janeiro a junho, predominam valores baixos e pouca variabilidade, com distribuições concentradas próximas de zero. A partir de julho, observa-se um aumento progressivo das concentrações, com maior dispersão e deslocamento das distribuições para valores mais elevados.
+
+Os meses de agosto e setembro apresentam os maiores níveis de PM2,5, com ampla variabilidade e ocorrência de valores extremos, indicando episódios intensos de poluição atmosférica. Esse comportamento é compatível com o período seco na região, caracterizado pela intensificação das queimadas. A partir de outubro, há redução gradual das concentrações, com retorno a níveis mais baixos e menor variabilidade nos meses de novembro e dezembro, acompanhando o início do período chuvoso.
+
+###Base Internações por doenças respiratorias (SIH)
+```{r arruma sih}
+ordem_meses <- c(
+  "janeiro", "fevereiro", "marco", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"
+)
+
+sih_2024_resp <- sih |>
+  mutate(
+    AnoInternacao = as.numeric(AnoInternacao),
+    DiaInternacao = as.numeric(DiaInternacao),
+    NumeroInternacoes = as.numeric(NumeroInternacoes),
+    mes_abrev = str_sub(MesInternacao, 4, 6),
+    mes = mes_map[mes_abrev],
+    mes = factor(mes, levels = ordem_meses)
+  ) |>
+  filter(AnoInternacao == 2024)
+
+sih_diario_2024 <- sih_2024_resp |>
+  group_by(mes, DiaInternacao) |>
+  summarise(
+    internacoes = sum(NumeroInternacoes, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+```
+
+
+### Grafico com a distribição mensal por doenças respiratórias em Mato Grosso, no ano de 2024
+```{r grafico internacoes}
+grafico_sih <- ggplot(
+  sih_diario_2024,
+  aes(
+    x = internacoes,
+    y = fct_rev(mes),
+    fill = after_stat(x)
+  )
+) +
+  geom_density_ridges_gradient(
+    scale = 2.5,
+    rel_min_height = 0.01,
+    color = "black",
+    linewidth = 0.3
+  ) +
+  scale_fill_viridis_c(
+    option = "C",
+    direction = -1,
+    name = "Internacoes"
+  ) +
+  labs(
+    title = "B) Distribuicao das Internacoes respiratorias diarias no ano de 2024 em Mato Grosso",
+    x = "Internacoes diarias",
+    y = "Mes"
+  ) +
+  theme_minimal()
+
+grafico_sih
+```
+
+O gráfico evidencia um padrão sazonal na distribuição das internações respiratórias diárias em Mato Grosso ao longo de 2024. Nos primeiros meses do ano, especialmente entre janeiro e fevereiro, as internações apresentam valores mais baixos e menor variabilidade. A partir de março, observa-se um aumento progressivo, com maior dispersão e deslocamento das distribuições para valores mais elevados.
+
+Os meses de abril e maio concentram os maiores volumes de internações, com ocorrência de valores mais altos e maior heterogeneidade, indicando períodos de maior demanda por serviços de saúde. Após esse pico, verifica-se uma redução gradual das internações a partir de junho, mantendo-se em níveis intermediários até outubro, com nova diminuição nos meses finais do ano.
+
+De forma geral, o comportamento observado sugere forte influência da sazonalidade, com maior ocorrência de internações no período chuvoso, possivelmente associada à maior circulação de vírus respiratórios e a condições ambientais favoráveis à transmissão de doenças.
+
+### Grafico da distribuição mensal do PM2,5 por município, no ano de 2024 em Mato Grosso.
+
+```{r }
+library(sf)
+
+mt_mapa <- st_read("../dados/MT_Municipios_2023.shp") |>
+  st_transform(4326)
+```
+
+```{r mapa}
+# Pacotes adicionais ------------------------------------------------------
+
+library(gganimate)
+library(gifski)
+library(transformr)
+
+
+# Base mensal PM2,5 -------------------------------------------------------
+
+pm25_mes_2024 <- pm25 |>
+  mutate(
+    ano = year(date),
+    mes = month(date),
+    code_muni = str_sub(as.character(code_muni), 1, 6)
+  ) |>
+  filter(ano == 2024) |>
+  group_by(code_muni, mes) |>
+  summarise(
+    pm25_media = mean(value, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  mutate(
+    mes_nome = factor(
+      mes,
+      levels = 1:12,
+      labels = ordem_meses
+    )
+  )
+
+
+# Mapa com PM2,5 mensal ---------------------------------------------------
+
+mapa_pm25_mes <- mt_mapa |>
+  st_transform(4326) |>
+  mutate(
+    code_muni = str_sub(as.character(CD_MUN), 1, 6)
+  ) |>
+  left_join(pm25_mes_2024, by = "code_muni")
+
+
+# Escala fixa -------------------------------------------------------------
+
+limites_pm25 <- range(mapa_pm25_mes$pm25_media, na.rm = TRUE)
+
+
+# Animação ----------------------------------------------------------------
+
+g_pm25_anim <- ggplot(mapa_pm25_mes) +
+  geom_sf(aes(fill = pm25_media), color = "white", linewidth = 0.08) +
+  scale_fill_viridis_c(
+    option = "magma",
+    direction = -1,
+    limits = limites_pm25,
+    na.value = "grey90",
+    name = "PM2,5"
+  ) +
+  labs(
+    title = "Distribuicao mensal do PM2,5 em Mato Grosso",
+    subtitle = "Ano de 2024 - {closest_state}",
+    caption = "Media mensal por municipio",
+    fill = "PM2,5"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right"
+  ) +
+  transition_states(
+    mes_nome,
+    transition_length = 2,
+    state_length = 3,
+    wrap = TRUE
+  ) +
+  ease_aes("linear")
+
+g_pm25_anim
+```
+
+
+## Considerações Finais
+As análises realizadas evidenciam um padrão sazonal distinto entre a poluição atmosférica e as internações por doenças respiratórias em Mato Grosso ao longo de 2024. Observou-se aumento expressivo das concentrações de PM2,5 durante o período seco, especialmente entre julho e setembro, associado à intensificação das queimadas, enquanto o maior volume de internações ocorreu nos meses chuvosos, sugerindo a influência de outros fatores, como a circulação de agentes infecciosos e condições climáticas favoráveis à transmissão de doenças. Os resultados indicam que, embora a poluição atmosférica seja um importante determinante ambiental, a ocorrência de agravos respiratórios resulta da interação de múltiplos fatores, reforçando a necessidade de abordagens integradas na vigilância em saúde e no planejamento de ações preventivas e assistenciais.
