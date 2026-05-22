@@ -27,6 +27,7 @@ library(leaflet)
 library(gganimate)
 library(gifski)
 library(transformr)
+library(highcharter)
 ```
 
 #### Diretorio
@@ -189,6 +190,69 @@ Os meses de abril e maio concentram os maiores volumes de internações, com oco
 De forma geral, o comportamento observado sugere forte influência da sazonalidade, com maior ocorrência de internações no período chuvoso, possivelmente associada à maior circulação de vírus respiratórios e a condições ambientais favoráveis à transmissão de doenças.
 
 ### Grafico da distribuição mensal do PM2,5 por município, no ano de 2024 em Mato Grosso.
+
+
+```{r grafico interativo}
+
+# arrumando os dados diários
+pm25_diario_2024 <- pm25 %>%
+  mutate(
+    date = as.Date(date),
+    ano = year(date)
+  ) %>%
+  filter(ano == 2024) %>%
+  group_by(date) %>%
+  summarise(
+    pm25_diario = mean(value, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    dia_semana = weekdays(date),
+    data_label = format(date, "%B %d, %Y")
+  )
+
+# grafico interativo distribuição diaria PM2,5
+
+grafico_pm25_diario <- highchart() %>%
+  hc_add_series(
+    data = pm25_diario_2024,
+    type = "line",
+    hcaes(
+      x = date,
+      y = pm25_diario
+    ),
+    name = "PM2,5 diário"
+  ) %>%
+  hc_title(
+    text = "Distribuição diária do PM2,5 em Mato Grosso - 2024"
+  ) %>%
+  hc_subtitle(
+    text = "Concentração média diária de PM2,5"
+  ) %>%
+  hc_xAxis(
+    type = "datetime",
+    title = list(text = "Data")
+  ) %>%
+  hc_yAxis(
+    title = list(text = "PM2,5 (µg/m³)")
+  ) %>%
+  hc_tooltip(
+    useHTML = TRUE,
+    pointFormat = paste0(
+      "<b>{point.dia_semana}, {point.data_label}</b><br>",
+      "PM2,5 disperso: <b>{point.y:.2f}</b> µg/m³"
+    )
+  ) %>%
+  hc_exporting(enabled = TRUE)
+
+grafico_pm25_diario
+
+```
+
+A partir do mes de julho, observa-se um aumento progressivo das concentrações, coincidindo com o início do período seco no estado. Em agosto e, principalmente, setembro, os níveis tornam-se extremamente elevados, com diversos episódios acima de 100 µg/m³ e um pico superior a 600 µg/m³, valores muito acima do limite diário considerado seguro pela Organização Mundial da Saúde (OMS), estabelecido em 15 µg/m³, indicando severa degradação da qualidade do ar.
+
+### Grafico interativo da distribuição diária do PM2,5 por município, no ano de 2024 em Mato Grosso.
+
 
 ```{r }
 library(sf)
